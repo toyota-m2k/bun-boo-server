@@ -1,0 +1,28 @@
+/**
+ * メディアソースの設定
+ */
+export default {
+  sources: [
+    {
+      path: "D:/gdrive-L",  // メディアファイルが格納されているフォルダ
+      name: "MyCamera",  // 表示名
+      recursive: true,  // サブフォルダも検索
+      cloud: false,  // ローカルストレージ
+      rawData: {
+        path: "I:/マイドライブ/AChannel",
+        cloud: true,
+        recursive: true
+      }
+    },
+    {
+      path: "I:/マイドライブ/Photo",  // Google DriveのフォルダID
+      name: "Inbox",  // 表示名
+      recursive: true,  // サブフォルダも検索
+      cloud: true,  // Google Drive
+      rawData: undefined
+    }
+  ],
+  cloud: {
+    scanInterval: 30 * 60 * 1000  // 30分
+  }
+} as const; 

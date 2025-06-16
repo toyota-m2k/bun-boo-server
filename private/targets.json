@@ -1,0 +1,16 @@
+{
+  "roots":[
+    {
+      "path": "D:\\gdrive-L",
+      "name": "MyCamera",
+      "recursive": true,
+      "cloud": false
+    },
+    {
+      "path": "I:\\マイドライブ\\Photo",
+      "name": "Inbox",
+      "recursive": true,
+      "cloud": true
+    }
+  ]
+}
