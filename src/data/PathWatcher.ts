@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 import { watch } from "fs";
-import { join } from "path";
+import { join, extname } from "path";
 import ComparableFileList from "./ComparableFileList";
 import type { CloudConfig } from "./MediaFileManager";
 import { existsSync } from "fs";
@@ -23,10 +23,20 @@ export interface WatchEntry {
 export default class PathWatcher extends EventEmitter {
     private entries: Map<string, WatchEntry> = new Map();
     private cloudConfig: CloudConfig;
+    private acceptableExtensions: readonly string[];
 
-    constructor(cloudConfig: CloudConfig) {
+    constructor(cloudConfig: CloudConfig, acceptableExtensions: readonly string[]) {
         super();
         this.cloudConfig = cloudConfig;
+        this.acceptableExtensions = acceptableExtensions;
+    }
+
+    /**
+     * ファイルの拡張子が受け入れ可能かチェック
+     */
+    private isAcceptableFile(path: string): boolean {
+        const ext = extname(path).toLowerCase();
+        return this.acceptableExtensions.includes(ext);
     }
 
     /**
@@ -137,6 +147,11 @@ export default class PathWatcher extends EventEmitter {
 
                 const fullPath = join(entry.path, filename);
                 
+                // 受け入れ可能なファイルかチェック
+                if (!this.isAcceptableFile(fullPath)) {
+                    return;
+                }
+                
                 // リネームイベントの処理
                 if (eventType === "rename") {
                     if (existsSync(fullPath)) {
@@ -216,20 +231,24 @@ export default class PathWatcher extends EventEmitter {
 
             // 削除されたファイルのイベントを発行
             for (const path of onlyInSrc) {
-                this.emit("change", {
-                    path,
-                    type: "unlink",
-                    source: entry.path
-                });
+                if (this.isAcceptableFile(path)) {
+                    this.emit("change", {
+                        path,
+                        type: "unlink",
+                        source: entry.path
+                    });
+                }
             }
 
             // 追加されたファイルのイベントを発行
             for (const path of onlyInDst) {
-                this.emit("change", {
-                    path,
-                    type: "add",
-                    source: entry.path
-                });
+                if (this.isAcceptableFile(path)) {
+                    this.emit("change", {
+                        path,
+                        type: "add",
+                        source: entry.path
+                    });
+                }
             }
 
             // ファイルリストを更新

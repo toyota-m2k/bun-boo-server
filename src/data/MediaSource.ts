@@ -1,4 +1,5 @@
-import { readdir, stat, copyFile } from "fs/promises";
+import { readdir, stat, copyFile, rename } from "fs/promises";
+import { existsSync } from "fs";
 import { join, extname, basename } from "path";
 import MediaFile from "./MediaFile";
 import PathWatcher from "./PathWatcher";
@@ -6,6 +7,9 @@ import { type CloudConfig } from "./MediaFileManager";
 import { EventEmitter } from "events";
 import MediaConvert from "./MediaConvert";
 import ComparableFileList from "./ComparableFileList";
+
+// 受け入れる拡張子のリスト
+export const acceptableExtensions = ['.mp4', '.mp3', '.jpeg', '.jpg', '.png'] as const;
 
 // MediaSourceErrorクラスを追加
 export class MediaSourceError extends Error {
@@ -47,7 +51,7 @@ export default class MediaSource extends EventEmitter {
         this.cloud = cloud;
         this.rawData = rawData;
         this.files = new Map();
-        this.watcher = new PathWatcher(cloudConfig);
+        this.watcher = new PathWatcher(cloudConfig, acceptableExtensions);
         this.converter = new MediaConvert();
 
         // ファイル変更イベントのハンドラを設定
@@ -73,6 +77,12 @@ export default class MediaSource extends EventEmitter {
                 if (entry.isFile()) {
                     const fullPath = join(this.path, entry.name);
                     const ext = extname(entry.name).toLowerCase();
+                    
+                    // 受け入れ可能な拡張子かチェック
+                    if (!acceptableExtensions.includes(ext as typeof acceptableExtensions[number])) {
+                        continue;
+                    }
+
                     const title = basename(entry.name, ext);
                     const stats = await stat(fullPath);
 
@@ -187,6 +197,7 @@ export default class MediaSource extends EventEmitter {
     private async handleFileChange(event: { path: string, type: string, source: string }): Promise<void> {
         // rawDataの変更イベントの場合
         if (this.rawData && event.source === this.rawData.path) {
+            console.log(`handleFileChanged: (rawData) ${event.type} path=${event.path} source=${event.source}`)
             if (event.type === "add") {
                 console.log(`MediaSource: append(rawData): ${event.path}`)
                 await this.processRawFile(event.path);
@@ -198,9 +209,16 @@ export default class MediaSource extends EventEmitter {
         if (event.source !== this.path) return;
 
         try {
+            console.log(`handleFileChanged: (target) ${event.type} path=${event.path} source=${event.source}`)
             switch (event.type) {
                 case "add": {
                     const ext = extname(event.path).toLowerCase();
+                    
+                    // 受け入れ可能な拡張子かチェック
+                    if (!acceptableExtensions.includes(ext as typeof acceptableExtensions[number])) {
+                        return;
+                    }
+
                     const title = basename(event.path, ext);
                     const stats = await stat(event.path);
                     console.log(`MediaSource: added: ${event.path}`)
