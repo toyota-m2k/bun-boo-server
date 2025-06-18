@@ -2,21 +2,12 @@ import { Elysia } from "elysia";
 import { readFileSync } from "fs";
 import { join } from "path";
 import config from "../private/config.ts";
-import { booSetup } from "./routing.ts";
+import { booSetup, booShutdown } from "./routing.ts";
 import { logger } from "./Logger.ts";
-import MediaFileManager from "./data/MediaFileManager";
 import target from "../private/target";
-
-// グローバル変数としてmanagerを宣言
-let manager: MediaFileManager;
 
 async function main() {
     try {
-        // MediaFileManagerの初期化
-        manager = await MediaFileManager.create(target);
-        await manager.initialize();
-        manager.startWatching();
-
         // Elysiaアプリケーションの設定
         const app = new Elysia()
             .onError(({ code, error, set, request }) => {
@@ -63,50 +54,44 @@ async function main() {
                     path: error instanceof Error ? error.message : String(error)
                 };
             })
-            .get("/", () => "Hello World!")
+            .get("/", () => "bun-boo-server")
+
+        booSetup(app)
             .listen(3000);
 
         logger.info(
             `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
         );
     } catch (error) {
-        logger.error("アプリケーションの起動に失敗しました:", error);
+        logger.error("bun-boo-server could't be started.", error);
         process.exit(1);
     }
 }
 
 // 終了処理
 process.on('SIGINT', async () => {
-    logger.info('アプリケーションを終了します...');
-    if (manager) {
-        await manager.stopWatching();
-    }
+    logger.info('bun-boo-server will be stopped...(SIGINT)');
+    booShutdown()
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-    logger.info('アプリケーションを終了します...');
-    if (manager) {
-        await manager.stopWatching();
-    }
+    logger.info('bun-boo-server will be stopped...(SIGTERM)');
+    booShutdown()
     process.exit(0);
 });
 
 // 未処理の例外をキャッチ
 process.on('uncaughtException', async (error) => {
-    logger.error('未処理の例外が発生しました:', error);
-    if (manager) {
-        await manager.stopWatching();
-    }
+    logger.error('bun-boo-server will be stopped...', error);
+    booShutdown()
     process.exit(1);
 });
 
 // 未処理のPromise拒否をキャッチ
 process.on('unhandledRejection', async (reason, promise) => {
-    logger.error('未処理のPromise拒否が発生しました:', reason);
-    if (manager) {
-        await manager.stopWatching();
-    }
+    logger.info('bun-boo-server will be stopped...');
+    booShutdown()
     process.exit(1);
 });
 

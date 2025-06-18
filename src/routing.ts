@@ -241,3 +241,7 @@ export function booSetup(app:Elysia):Elysia {
         }
     })
 }
+
+export function booShutdown() {
+    manager.stopWatching()
+}
