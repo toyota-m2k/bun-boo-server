@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { join } from "path";
 import config from "../../private/config";
+import { logger } from "../Logger";
 
 interface FFProbeResult {
     format: {
@@ -77,11 +78,11 @@ export default class MediaConvert {
 
             // HEVCでない場合はコンバートしない
             if (videoStream.codec_name.toLowerCase() !== "hevc") {
-                console.log(`${inputPath} はHEVCではないため、コンバートをスキップします`);
+                logger.info(`${inputPath} はHEVCではないため、コンバートをスキップします`);
                 return false;
             }
 
-            console.log(`${inputPath}： コンバートを開始します`);
+            logger.info(`${inputPath}： コンバートを開始します`);
             // コンバート実行
             return new Promise((resolve, reject) => {
                 const ffmpeg = spawn(this.ffmpegPath, [
@@ -98,13 +99,13 @@ export default class MediaConvert {
 
                 ffmpeg.stderr.on("data", (data) => {
                     const e = data.toString()
-                    console.log(e)
+                    logger.debug(e)
                     error += e;
                 });
 
                 ffmpeg.on("close", (code) => {
                     if (code === 0) {
-                        console.log(`${inputPath} のコンバートが完了しました`);
+                        logger.info(`${inputPath} のコンバートが完了しました`);
                         resolve(true);
                     } else {
                         reject(new Error(`ffmpegの実行に失敗: ${error}`));
@@ -113,7 +114,7 @@ export default class MediaConvert {
             });
 
         } catch (error) {
-            console.error(`コンバート中にエラーが発生: ${error}`);
+            logger.error("コンバート中にエラーが発生", error);
             throw error;
         }
     }

@@ -2,11 +2,11 @@ import { readdir, stat, copyFile, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { join, extname, basename } from "path";
 import MediaFile from "./MediaFile";
-import PathWatcher from "./PathWatcher";
-import { type CloudConfig } from "./MediaFileManager";
+import PathWatcher, { type FileChangeEvent, type FileRenameEvent } from "./PathWatcher";
 import { EventEmitter } from "events";
 import MediaConvert from "./MediaConvert";
 import ComparableFileList from "./ComparableFileList";
+import { logger } from "../Logger";
 
 // 受け入れる拡張子のリスト
 export const acceptableExtensions = ['.mp4', '.mp3', '.jpeg', '.jpg', '.png'] as const;
@@ -25,37 +25,51 @@ export class MediaSourceError extends Error {
 }
 
 // イベントの型定義
-export interface MediaSourceEvents {
-    'fileAdded': (file: MediaFile) => void;
-    'fileRemoved': (file: MediaFile) => void;
-    'fileRenamed': (file: MediaFile) => void;
+// export interface MediaSourceEvents {
+//     'fileAdded': (file: MediaFile) => void;
+//     'fileRemoved': (file: MediaFile) => void;
+//     'fileRenamed': (file: MediaFile) => void;
+// }
+
+export interface IFileEvent {
+    changeType: string,
+    file: MediaFile
 }
+export interface IFileRenameEvent extends IFileEvent {
+    oldFullPath: string;
+}
+
 
 export interface RawDataConfig {
     path: string;
-    cloud: boolean;
     recursive: boolean;
 }
 
 export default class MediaSource extends EventEmitter {
     private path: string;
-    private cloud: boolean;
     private files: Map<string, MediaFile>;
     private watcher: PathWatcher;
     private rawData?: RawDataConfig;
+    private rawDataWatcher? : PathWatcher;
     private converter: MediaConvert;
 
-    constructor(path: string, cloud: boolean = false, cloudConfig: CloudConfig, rawData?: RawDataConfig) {
+    constructor(path: string, rawData?: RawDataConfig) {
         super();
         this.path = path;
-        this.cloud = cloud;
         this.rawData = rawData;
         this.files = new Map();
-        this.watcher = new PathWatcher(cloudConfig, acceptableExtensions);
+        this.watcher = new PathWatcher(path);
         this.converter = new MediaConvert();
 
         // ファイル変更イベントのハンドラを設定
         this.watcher.on("change", this.handleFileChange.bind(this));
+
+        if (rawData) {
+            this.rawDataWatcher = new PathWatcher(rawData.path)
+            this.rawDataWatcher.on("change", this.handleRawDataFileChange.bind(this))
+
+        }
+
     }
 
     /**
@@ -106,7 +120,7 @@ export default class MediaSource extends EventEmitter {
                 await this.processRawDataFiles();
             }
         } catch (error) {
-            console.error(`スキャン中にエラーが発生: ${this.path}`, error);
+            logger.error(`スキャン中にエラーが発生: ${this.path}`, error);
             throw error;
         }
     }
@@ -118,7 +132,7 @@ export default class MediaSource extends EventEmitter {
         if (!this.rawData) return;
 
         // 監視を一時停止
-        const stopped = this.watcher.removePath(this.path);
+        const stopped = await this.watcher.stop()
 
         try {
             // rawDataのファイルリストを作成
@@ -133,15 +147,11 @@ export default class MediaSource extends EventEmitter {
                 await this.processRawFile(rawPath);
             }
         } catch (error) {
-            console.error(`rawDataの処理中にエラーが発生: ${this.rawData.path}`, error);
+            logger.error(`rawDataの処理中にエラーが発生: ${this.rawData.path}`, error);
         } finally {
             if( stopped ) {
                 // 停止している場合は監視を再開
-                this.watcher.addPath(this.path, {
-                    recursive: false,
-                    cloud: this.cloud,
-                    startNow: true
-                });
+                this.watcher.start()
             }
         }
     }
@@ -160,71 +170,67 @@ export default class MediaSource extends EventEmitter {
             // 既に存在する場合はスキップ
             try {
                 await stat(targetPath);
-                console.log(`MediaSource: already exists: ${targetPath}`)
+                logger.debug(`MediaSource: already exists: ${targetPath}`)
                 return;
             } catch {
                 // ファイルが存在しない場合は続行
             }
 
-            if (ext !== '.mp4' || !await this.converter.convert(rawPath, targetPath)) {
-                // 動画ファイル以外、または、コンバートしなかった場合はコピー
-                console.log(`MediaSource: copied: ${targetPath}`)
-                await copyFile(rawPath, targetPath);
+            // 監視を一時停止
+            const stopped = await this.watcher.stop()
+            try {
+
+                if (ext !== '.mp4' || !await this.converter.convert(rawPath, targetPath)) {
+                    // 動画ファイル以外、または、コンバートしなかった場合はコピー
+                    logger.info(`MediaSource: copied: ${targetPath}`)
+                    await copyFile(rawPath, targetPath);
+                }
+
+                // ファイルを追加
+                const stats = await stat(targetPath);
+                const file = await MediaFile.create(
+                    targetPath,
+                    ext,
+                    basename(filename, ext),
+                    this.path,
+                    stats.size,
+                    stats.mtime.getTime()
+                );
+
+                this.files.set(targetPath, file);
+                this.emit("change", {changeType: "Created", file});
+                logger.info(`MediaSource file appended from rawData: ${targetPath}`)
+            } finally {
+                if( stopped) {
+                    // 監視を再開
+                    this.watcher.start()
+                }
             }
-
-            // ファイルを追加
-            const stats = await stat(targetPath);
-            const file = await MediaFile.create(
-                targetPath,
-                ext,
-                basename(filename, ext),
-                this.path,
-                stats.size,
-                stats.mtime.getTime()
-            );
-
-            this.files.set(targetPath, file);
-            this.emit("fileAdded", file);
-            console.log(`MediaSource file appended from rawData: ${targetPath}`)
         } catch (error) {
-            console.error(`ファイルの処理中にエラーが発生: ${rawPath}`, error);
+            logger.error(`ファイルの処理中にエラーが発生: ${rawPath}`, error);
         }
     }
 
     /**
      * ファイル変更イベントのハンドラ
      */
-    private async handleFileChange(event: { path: string, type: string, source: string }): Promise<void> {
-        // rawDataの変更イベントの場合
-        if (this.rawData && event.source === this.rawData.path) {
-            console.log(`handleFileChanged: (rawData) ${event.type} path=${event.path} source=${event.source}`)
-            if (event.type === "add") {
-                console.log(`MediaSource: append(rawData): ${event.path}`)
-                await this.processRawFile(event.path);
-            }
+    private async handleFileChange(event: FileChangeEvent): Promise<void> {
+        const ext = extname(event.fullPath).toLowerCase();
+        // 受け入れ可能な拡張子かチェック
+        if (!acceptableExtensions.includes(ext as typeof acceptableExtensions[number])) {
             return;
         }
 
-        // 通常の変更イベントの場合
-        if (event.source !== this.path) return;
-
         try {
-            console.log(`handleFileChanged: (target) ${event.type} path=${event.path} source=${event.source}`)
-            switch (event.type) {
-                case "add": {
-                    const ext = extname(event.path).toLowerCase();
-                    
-                    // 受け入れ可能な拡張子かチェック
-                    if (!acceptableExtensions.includes(ext as typeof acceptableExtensions[number])) {
-                        return;
-                    }
+            let file:MediaFile|undefined
+            switch(event.changeType) {
+                case "Created":
+                    const title = basename(event.fullPath, ext);
+                    const stats = await stat(event.fullPath);
+                    logger.info(`MediaSource: created: ${event.fullPath}`)
 
-                    const title = basename(event.path, ext);
-                    const stats = await stat(event.path);
-                    console.log(`MediaSource: added: ${event.path}`)
-
-                    const file = await MediaFile.create(
-                        event.path,
+                    file = await MediaFile.create(
+                        event.fullPath,
                         ext,
                         title,
                         this.path,
@@ -232,39 +238,76 @@ export default class MediaSource extends EventEmitter {
                         stats.mtime.getTime()
                     );
 
-                    this.files.set(event.path, file);
-                    this.emit("fileAdded", file);
+                    this.files.set(event.fullPath, file);
+                    this.emit("change", {file, ...event});
                     break;
-                }
-                case "unlink": {
-                    console.log(`MediaSource: removed: ${event.path}`)
-                    const file = this.files.get(event.path);
+
+                case "Deleted":
+                    logger.info(`MediaSource: deleted: ${event.fullPath}`)
+                    file = this.files.get(event.fullPath);
                     if (file) {
-                        this.files.delete(event.path);
-                        this.emit("fileRemoved", file);
+                        this.files.delete(event.fullPath);
+                        this.emit("change", {file, ...event});
                     }
                     break;
-                }
-                case "rename": {
-                    console.log(`MediaSource: renamed: ${event.path}`)
-                    const file = Array.from(this.files.values()).find(f => f.path === event.path);
+                case "Renamed":
+                    const renameEvent = event as FileRenameEvent
+                    logger.info(`MediaSource: renamed: ${renameEvent.oldFullPath} -> ${renameEvent.name}`)
+                    file = Array.from(this.files.values()).find(f => f.path === renameEvent.oldFullPath);
                     if (file) {
-                        // 古いパスを保存
-                        const oldPath = file.path;
                         // 新しいパスを設定
-                        file.path = event.path;
+                        file.path = renameEvent.fullPath
                         // ファイルマップを更新
-                        this.files.delete(oldPath);
-                        this.files.set(event.path, file);
+                        this.files.delete(renameEvent.oldFullPath)
+                        this.files.set(renameEvent.fullPath, file)
                         // イベントを発行
-                        this.emit("fileRenamed", file);
+                        this.emit("change", {file, ...event});
                     }
-                    break;
-                }
+                    break
+                case "Changed":
+                    // todo
+                    // 動画なら duration を取得し直す。
+                    logger.info(`MediaSource: changed: ${event.fullPath}`)
+                    break
             }
-        } catch (error) {
-            console.error(`ファイル変更処理中にエラーが発生: ${event.path}`, error);
+        } catch(error) {
+            logger.error("MediaSource#handleFileChange error", error);
         }
+    }
+
+    private async handleRawDataFileChange(event: FileChangeEvent):Promise<void> {
+        const ext = extname(event.fullPath).toLowerCase();
+        // 受け入れ可能な拡張子かチェック
+        if (!acceptableExtensions.includes(ext as typeof acceptableExtensions[number])) {
+            return;
+        }
+
+        try {
+            let file:MediaFile|undefined
+            switch(event.changeType) {
+                case "Created":
+                    logger.info(`MediaSource(rawData): created: ${event.fullPath}`)
+                    this.processRawFile(event.fullPath)
+                    break
+
+                case "Deleted":
+                    logger.info(`MediaSource(rawData): deleted: ${event.fullPath}`)
+                    // nothing to do.
+                    break;
+                case "Renamed":
+                    const renameEvent = event as FileRenameEvent
+                    logger.info(`MediaSource(rawData): renamed: ${renameEvent.oldFullPath} -> ${renameEvent.name}`)
+                    break
+                case "Changed":
+                    logger.info(`MediaSource(rawData): changed: ${event.fullPath}`)
+                    // todo
+                    // コピー（動画ならコンバート）
+                    break
+            }
+        } catch(error) {
+            logger.error("MediaSource#handleRawDataFileChange error", error);
+        }
+
     }
 
     /**
@@ -272,30 +315,18 @@ export default class MediaSource extends EventEmitter {
      */
     public startWatching(): void {
         // 通常のパスの監視を開始
-        this.watcher.addPath(this.path, {
-            recursive: false,
-            cloud: this.cloud,
-            startNow: true
-        });
+        this.watcher.start()
 
         // rawDataが設定されている場合、そのパスも監視
-        if (this.rawData) {
-            this.watcher.addPath(this.rawData.path, {
-                recursive: this.rawData.recursive,
-                cloud: this.rawData.cloud,
-                startNow: true
-            });
-        }
+        this.rawDataWatcher?.start()
     }
 
     /**
      * ファイル監視を停止
      */
     public stopWatching(): void {
-        this.watcher.removePath(this.path);
-        if (this.rawData) {
-            this.watcher.removePath(this.rawData.path);
-        }
+        this.watcher.stop()
+        this.rawDataWatcher?.stop()
     }
 
     /**

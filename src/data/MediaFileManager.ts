@@ -1,34 +1,27 @@
 import { EventEmitter } from "events";
 import MediaFile from "./MediaFile"
-import MediaSource from "./MediaSource";
+import MediaSource, { type IFileEvent, type IFileRenameEvent } from "./MediaSource";
 import MetaDataDB, { type MetaData } from "./MetaDataDB";
 import target from "../../private/target"
-
-export interface CloudConfig {
-    scanInterval: number;
-}
+import { logger } from "../Logger";
 
 export interface SourceConfig {
     path: string;
     name: string;
     recursive: boolean;
-    cloud: boolean;
     rawData?: {
         path: string;
-        cloud: boolean;
         recursive: boolean;
-    };
+    } | undefined;
 }
 
 export default class MediaFileManager extends EventEmitter {
     private sources: MediaSource[] = [];
-    private cloudConfig: CloudConfig;
     private db: MetaDataDB;
     public lastUpdated: Date = new Date()
 
-    constructor(cloudConfig: CloudConfig) {
+    constructor() {
         super();
-        this.cloudConfig = cloudConfig;
         this.db = new MetaDataDB();
     }
 
@@ -36,7 +29,7 @@ export default class MediaFileManager extends EventEmitter {
      * 設定からMediaFileManagerのインスタンスを作成
      */
     public static async create(): Promise<MediaFileManager> {
-        const manager = new MediaFileManager(target.cloud);
+        const manager = new MediaFileManager();
         await manager.initialize();
         return manager;
     }
@@ -51,18 +44,15 @@ export default class MediaFileManager extends EventEmitter {
         const existingPaths = new Set(existingRecords.map((record: { path: string }) => record.path));
 
         // ソースの初期化
-        for (const sourceConfig of target.sources) {
+        let sourceConfig:SourceConfig
+        for (sourceConfig of target.sources) {
             const source = new MediaSource(
                 sourceConfig.path,
-                sourceConfig.cloud,
-                this.cloudConfig,
                 sourceConfig.rawData
             );
 
             // ファイル変更イベントのハンドラを設定
-            source.on("fileAdded", this.handleFileAdded.bind(this));
-            source.on("fileRemoved", this.handleFileRemoved.bind(this));
-            source.on("fileRenamed", this.handleFileRenamed.bind(this));
+            source.on("change", this.handleFileChanged.bind(this));
 
             await source.scan();
             this.sources.push(source);
@@ -75,7 +65,7 @@ export default class MediaFileManager extends EventEmitter {
                     existingPaths.delete(file.path);
                 } else {
                     // DBに存在しないファイルを追加
-                    await this.handleFileAdded(file);
+                    await this.handleFileCreated(file);
                 }
             }
         }
@@ -87,12 +77,32 @@ export default class MediaFileManager extends EventEmitter {
 
         this.lastUpdated = new Date()
         this.startWatching()
+        logger.info("MediaFileManager started.")
+    }
+
+    private async handleFileChanged(event:IFileEvent): Promise<void> {
+        logger.info(`MediaFileManager: file changed: ${event.changeType} - ${event.file.path}`);
+        switch(event.changeType) {
+            case "Created":
+                this.handleFileCreated(event.file)
+                break
+            case "Deleted":
+                this.handleFileDeleted(event.file)
+                break;
+            case "Renamed":
+                this.handleFileRenamed(event.file, (event as IFileRenameEvent).oldFullPath)
+                break;
+            derault:
+                logger.error(`unsupported event: ${event.changeType}`)
+                break;
+        }
     }
 
     /**
      * ファイル追加イベントのハンドラ
      */
-    private async handleFileAdded(file: MediaFile): Promise<void> {
+    private async handleFileCreated(file: MediaFile): Promise<void> {
+        logger.info(`MediaFileManager: file added: ${file.path}`);
         await this.db.upsert({
             path: file.path,
             ext: file.ext,
@@ -115,20 +125,21 @@ export default class MediaFileManager extends EventEmitter {
     /**
      * ファイル削除イベントのハンドラ
      */
-    private async handleFileRemoved(file: MediaFile): Promise<void> {
+    private async handleFileDeleted(file: MediaFile): Promise<void> {
+        logger.info(`MediaFileManager: file deleted: ${file.path}`);
         await this.db.delete(file.path);
     }
 
     /**
      * ファイルがリネームされたときのハンドラ
      */
-    private async handleFileRenamed(file: MediaFile): Promise<void> {
+    private async handleFileRenamed(file: MediaFile, oldPath:string): Promise<void> {
         try {
             // メタデータを更新
-            await this.db.updatePath(file.path, file.path);
-            console.log(`MediaFileManager: file renamed: ${file.path}`);
+            await this.db.updatePath(oldPath, file.path);
+            logger.info(`MediaFileManager: file renamed: ${file.path}`);
         } catch (error) {
-            console.error(`ファイルのリネーム処理に失敗: ${file.path}`, error);
+            logger.error(`ファイルのリネーム処理に失敗: ${file.path}`, error);
         }
     }
 

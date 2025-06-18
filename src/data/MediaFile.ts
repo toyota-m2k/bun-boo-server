@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { join } from "path";
 import config from "../../private/config.ts"
+import { logger } from "../Logger.ts";
 
 export interface IMediaFile {
     path: string;
@@ -83,21 +84,25 @@ export default class MediaFile implements IMediaFile {
             });
 
             ffprobe.stderr.on("data", (data) => {
-                console.error(`ffprobe stderr: ${data}`);
+                logger.error(`ffprobe stderr: ${data}`);
             });
 
             ffprobe.on("close", async (code) => {
                 if (code !== 0) {
-                    reject(new Error(`ffprobe process exited with code ${code}`));
-                    return;
+                    const msg = `ffprobe process exited with code ${code}`
+                    logger.error(msg)
+                    reject(new Error(msg))
+                    return
                 }
 
                 try {
                     const result = JSON.parse(output);
                     this._duration = parseFloat(result.format.duration);
+                    logger.debug("ffprobe ok.")
                     resolve(this);
                 } catch (error) {
-                    reject(new Error(`Failed to parse ffprobe output: ${error}`));
+                    const msg = `Failed to parse ffprobe output: ${error}`
+                    reject(new Error(msg));
                 }
             });
         });

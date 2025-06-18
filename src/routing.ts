@@ -3,6 +3,7 @@ import MediaFileManager from "./data/MediaFileManager";
 import { type MetaData } from "./data/MetaDataDB"
 import { type IMediaFile } from "./data/MediaFile"
 import type { BunFile } from "bun";
+import { logger } from "./Logger";
 
 // 設定
 
@@ -34,7 +35,7 @@ function handleError(
     error: unknown|undefined = undefined,
     status: number = 500,
 ): { error: string; status:number, details?: string } {
-    console.error(`${status} ${message}`, error);
+    logger.error(`${status} ${message}`, error);
     set.status = status;
     const details = error instanceof Error ? error.message : error ? String(error) : undefined
     return {
@@ -108,9 +109,11 @@ function getItem(
 export function booSetup(app:Elysia):Elysia {
     return app
     .get("/nop", ()=> {
+        logger.debug("NOP")
         return { cmd: "nop" }
     })
     .get("/capability", () => {
+        logger.debug("CAPABILITY")
         return {
             cmd: "capability",
             serverName: "BooServer",
@@ -133,6 +136,7 @@ export function booSetup(app:Elysia):Elysia {
         const { date } = query
         const dn = parseInt(date??"0")
         const update = (manager.lastUpdated.getTime()>dn) ? "1" : "0"
+        logger.debug(`CHECK ${dn} : ${update}`)
         return {
             cmd: "check",
             update,
@@ -145,10 +149,12 @@ export function booSetup(app:Elysia):Elysia {
         let audio = true
         let photo = true
         if(f) {
+            logger.debug(`LIST f=${f} c=${String(c)}`)
             video = f.includes("v")
             audio = f.includes("a")
             photo = f.includes("p")
         } else if (type) {
+            logger.debug(`LIST f=${type} c=${String(c)}`)
             video = type === "video" || type === "all"
             audio = type === "audio" || type === "all"
             photo = type === "photo" || type === "all"
@@ -190,18 +196,23 @@ export function booSetup(app:Elysia):Elysia {
     
     })
     .get("/item", (context) => {
+        logger.info("ITEM")
         return getItem(context)
     })
     .get("/photo", (content) => {
+        logger.info("PHOTO")
         return getItem(content)
     })
     .get("/video", (content) => {
+        logger.info("VIDEO")
         return getItem(content)
     })
     .get("/audio", (content) => {
+        logger.info("AUDIO")
         return getItem(content)
     })
     .get("/chapter", ({query})=>{
+        logger.warn("CHAPTER: not supported.")
         return {
             cmd:"chapter",
             id:query.id,
@@ -209,17 +220,20 @@ export function booSetup(app:Elysia):Elysia {
         }
     })
     .get("/current", ({query})=>{
+        logger.warn("CURRENT: not supported.")
         return {
             cmd: "current",
             id:1
         }
     })
     .put("/current", ()=>{
+        logger.warn("CURRENT (PUT): not supported.")
         return {
             cmd: "current"
         }
     })
     .get("/categories", ()=> {
+        logger.info("CATEGORIES")
         return {
             cmd: "categories",
             unchecked: "Unchecked",

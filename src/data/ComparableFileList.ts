@@ -1,5 +1,6 @@
 import { readdir, stat } from "fs/promises";
 import { join, relative } from "path";
+import { logger } from "../Logger";
 
 export default class ComparableFileList {
     private basePath: string;
@@ -37,7 +38,7 @@ export default class ComparableFileList {
                 }
             }
         } catch (error) {
-            console.error(`スキャン中にエラーが発生: ${path}`, error);
+            logger.error(`スキャン中にエラーが発生: ${path}`, error);
             throw error;
         }
     }
