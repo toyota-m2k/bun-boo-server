@@ -1,8 +1,8 @@
 import { EventEmitter } from "events";
 import { spawn } from "child_process";
-import { join } from "path";
 import { existsSync } from "fs";
 import { logger } from "../Logger";
+import {join} from "path";
 
 export interface FileChangeEvent {
     changeType: "Created" | "Changed" | "Deleted" | "Renamed";
@@ -15,13 +15,15 @@ export interface FileRenameEvent extends FileChangeEvent {
 }
 
 export default class PathWatcher extends EventEmitter {
-    private watcher: any = null;
-    private isWatching: boolean = false;
-    private currentPath: string = "";
+    private watcher: any = null
+    private isWatching: boolean = false
+    private currentPath: string = ""
+    private recursive: boolean = false
 
-    constructor(path:string) {
-        super();
+    constructor(path:string, recursive: boolean) {
+        super()
         this.currentPath = path
+        this.recursive = recursive
     }
 
     public async start(): Promise<void> {
@@ -65,6 +67,9 @@ export default class PathWatcher extends EventEmitter {
                 "-Path",
                 this.currentPath
             ];
+            if (this.recursive) {
+                args.push("-Recursive");
+            }
 
             this.watcher = spawn("powershell.exe", args);
 
@@ -77,8 +82,23 @@ export default class PathWatcher extends EventEmitter {
                     for (const event of events) {
                         if (event.trim()) {
                             const eventData = JSON.parse(event);
-                            logger.debug(`受信イベント: ${event}`);
-                            this.emit("change", eventData);
+                            logger.debug(`PathWatcher: ${event}`);
+
+                            const changeEvent: FileChangeEvent = {
+                                changeType: eventData.changeType,
+                                name: eventData.name,
+                                fullPath: eventData.fullPath.replace(/\\/g, "/")
+                            };
+                            if (eventData.changeType === "Renamed") {
+                                const renameEvent: FileRenameEvent = {
+                                    ...changeEvent,
+                                    oldName: eventData.oldName,
+                                    oldFullPath: eventData.oldFullPath.replace(/\\/g, "/")
+                                };
+                                this.emit("change", renameEvent);
+                            } else {
+                                this.emit("change", changeEvent);
+                            }
                         }
                     }
                 } catch (error) {

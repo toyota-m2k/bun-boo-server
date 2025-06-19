@@ -143,11 +143,12 @@ try {
     while ($true) { 
         Start-Sleep -Seconds 1
         $count++
-        if ($count % 10 -eq 0) {
+        if ($count % 60 -eq 0) {
             # イベントハンドラの状態を確認（デバッグモード時のみ表示）
-            foreach ($handler in $handlers) {
-                Write-LogDebug "Handler state: $($handler.State)"
-            }
+            Write-LogDebug "FileWatcher is running."
+#             foreach ($handler in $handlers) {
+#                 Write-LogDebug "Handler state: $($handler.State)"
+#             }
         }
     }
 } catch {

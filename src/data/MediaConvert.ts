@@ -1,5 +1,4 @@
 import { spawn } from "child_process";
-import { join } from "path";
 import config from "../../private/config";
 import { logger } from "../Logger";
 
@@ -14,12 +13,12 @@ interface FFProbeResult {
 }
 
 export default class MediaConvert {
-    private ffprobePath: string;
-    private ffmpegPath: string;
+    private readonly ffprobePath: string;
+    private readonly ffmpegPath: string;
 
     constructor() {
-        this.ffprobePath = config.ffprobe.path;
-        this.ffmpegPath = config.ffmpeg.path;
+        this.ffprobePath = config.ffprobe.path.replace(/\\/g, "/")
+        this.ffmpegPath = config.ffmpeg.path.replace(/\\/g, "/")
     }
 
     /**

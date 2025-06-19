@@ -1,5 +1,4 @@
 import { readdir, stat } from "fs/promises";
-import { join, relative } from "path";
 import { logger } from "../Logger";
 
 export default class ComparableFileList {
