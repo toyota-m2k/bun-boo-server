@@ -5,14 +5,15 @@ import MetaDataDB, { type MetaData } from "./MetaDataDB";
 import target from "../../private/target"
 import { logger } from "../Logger";
 
-export interface SourceConfig {
+export interface BaseSourceConfig {
     path: string;
-    name: string;
-    recursive: boolean;
-    rawData?: {
-        path: string;
-        recursive: boolean;
-    } | undefined;
+    recursive?: boolean;
+    cloud?: boolean;
+}
+
+export interface SourceConfig extends BaseSourceConfig {
+    name?: string;
+    rawData?: BaseSourceConfig|undefined
 }
 
 export default class MediaFileManager extends EventEmitter {
@@ -133,7 +134,7 @@ export default class MediaFileManager extends EventEmitter {
     private async handleFileRenamed(file: MediaFile, oldPath:string): Promise<void> {
         try {
             // メタデータを更新
-            this.db.updatePath(oldPath, file.path);
+            this.db.updatePath(oldPath, file.path, file.title);
             logger.info(`MediaFileManager.handleFileRenamed: ${file.path}`);
         } catch (error) {
             logger.error(`ファイルのリネーム処理に失敗: ${file.path}`, error);

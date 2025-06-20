@@ -216,16 +216,17 @@ export default class MetaDataDB {
     /**
      * メタデータのパスを更新
      */
-    public updatePath(oldPath: string, newPath: string): void {
+    public updatePath(oldPath: string, newPath: string, newTitle: string): void {
         const stmt = this.db.prepare(`
             UPDATE metadata 
-            SET path = $newPath
+            SET path = $newPath, title = $newTitle, updated_at = CURRENT_TIMESTAMP
             WHERE path = $oldPath
         `);
 
         stmt.run({
             $oldPath: oldPath,
-            $newPath: newPath
+            $newPath: newPath,
+            $newTitle: newTitle
         });
     }
 

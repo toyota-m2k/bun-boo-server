@@ -1,5 +1,6 @@
 import { readdir, stat } from "fs/promises";
 import { logger } from "../Logger";
+import { join_path, relative_path } from "../utils/PathUtils";
 
 export default class ComparableFileList {
     private basePath: string;
@@ -27,8 +28,8 @@ export default class ComparableFileList {
             const entries = await readdir(path, { withFileTypes: true });
 
             for (const entry of entries) {
-                const fullPath = join(path, entry.name);
-                const relativePath = relative(this.basePath, fullPath);
+                const fullPath = join_path(path, entry.name);
+                const relativePath = relative_path(this.basePath, fullPath);
 
                 if (entry.isFile()) {
                     this.files.add(relativePath);
@@ -43,6 +44,19 @@ export default class ComparableFileList {
     }
 
     /**
+     * ファイルリストから特定のファイルを削除
+     */
+    public remove(filePath: string): boolean {
+        const relativePath = relative_path(this.basePath, filePath)
+        if (this.files.has(relativePath)) {
+            this.files.delete(relativePath)
+            return true
+        } else {
+            return false
+        }
+    }
+
+    /**
      * 別のファイルリストと比較
      */
     public compare(dist: ComparableFileList): { onlyInSrc: string[], onlyInDst: string[] } {
@@ -52,14 +66,14 @@ export default class ComparableFileList {
         // このリストにのみ存在するファイル
         for (const file of this.files) {
             if (!dist.files.has(file)) {
-                onlyInSrc.push(join(this.basePath, file));
+                onlyInSrc.push(join_path(this.basePath, file));
             }
         }
 
         // 比較対象のリストにのみ存在するファイル
         for (const file of dist.files) {
             if (!this.files.has(file)) {
-                onlyInDst.push(join(dist.basePath, file));
+                onlyInDst.push(join_path(dist.basePath, file));
             }
         }
 
@@ -70,6 +84,6 @@ export default class ComparableFileList {
      * ファイルリストを取得
      */
     public getFiles(): string[] {
-        return Array.from(this.files).map(it=>join(this.basePath, it));
+        return Array.from(this.files).map(it=>join_path(this.basePath, it));
     }
 } 

@@ -5,6 +5,7 @@ import config from "../private/config.ts";
 import { booSetup, booShutdown } from "./routing.ts";
 import { logger } from "./Logger.ts";
 import target from "../private/target";
+import { withDelay } from "./utils/AsyncUtils.ts"
 
 async function main() {
     try {
@@ -55,9 +56,17 @@ async function main() {
                 };
             })
             .get("/", () => "bun-boo-server")
+            .get("/quit", () => {
+                logger.info("bun-boo-server will be stopped by quit request...");
+                withDelay(3000, () => {
+                    booShutdown()
+                    process.exit(0)
+                });
+                return "bun-boo-server is stopping...";
+            })
 
         booSetup(app)
-            .listen(3000);
+            .listen(config.server.port)
 
         logger.info(
             `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`

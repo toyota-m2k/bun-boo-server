@@ -1,4 +1,4 @@
-import PathWatcher from "../src/data/PathWatcher";
+import LocalWatcher from "../src/watcher/PathWatcher";
 import type { CloudConfig } from "../src/data/MediaFileManager";
 
 // テスト用の設定
@@ -8,7 +8,7 @@ const testConfig: CloudConfig = {
 
 console.log("PathWatcherのテストを開始します...\n");
 
-const watcher = new PathWatcher(testConfig);
+const watcher = new LocalWatcher(testConfig);
 
 // ファイル変更イベントのハンドラを設定
 watcher.on("change", (event) => {

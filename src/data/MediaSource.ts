@@ -1,16 +1,21 @@
 import { readdir, stat, copyFile, rename } from "fs/promises";
 import { extname, basename } from "path";
 import MediaFile from "./MediaFile";
-import PathWatcher, { type FileChangeEvent, type FileRenameEvent } from "./PathWatcher";
+import { PathWatcher, type FileChangeEvent, type FileRenameEvent } from "../watcher/PathWatcher.ts";
+import { WatcherFactory } from "../watcher/WatcherFactory.ts";
 import { EventEmitter } from "events";
 import MediaConvert from "./MediaConvert";
 import ComparableFileList from "./ComparableFileList";
 import { logger } from "../Logger";
-import type {SourceConfig} from "./MediaFileManager.ts";
-import {dirname_path, join_path, normalize_path, relative_path} from "../utils/PathUtils.ts";
+import type {BaseSourceConfig, SourceConfig} from "./MediaFileManager.ts";
+import {dirname_path, ensureDirectoryExists, join_path, normalize_path, relative_path} from "../utils/PathUtils.ts";
 
 // 受け入れる拡張子のリスト
-export const acceptableExtensions = ['.mp4', '.mp3', '.jpeg', '.jpg', '.png'] as const;
+const acceptableExtensions = ['.mp4', '.mp3', '.jpeg', '.jpg', '.png'] as const;
+// 型ガードを使用
+export function isAcceptableExtension(ext: string): ext is typeof acceptableExtensions[number] {
+  return (acceptableExtensions as readonly string[]).includes(ext);
+}
 
 // MediaSourceErrorクラスを追加
 export class MediaSourceError extends Error {
@@ -37,41 +42,37 @@ export interface IFileEvent {
     file: MediaFile
 }
 export interface IFileRenameEvent extends IFileEvent {
-    oldFullPath: string;
-}
-
-
-export interface RawDataConfig {
-    path: string;
-    recursive: boolean;
+    oldFullPath: string
 }
 
 export default class MediaSource extends EventEmitter {
-    private path: string;
-    private recursive: boolean;
-    private files: Map<string, MediaFile>;
-    private watcher: PathWatcher;
-    private rawData?: RawDataConfig;
-    private rawDataWatcher? : PathWatcher;
-    private converter: MediaConvert;
+    private path: string
+    private name: string
+    private recursive: boolean
+    private cloud: boolean
+    private files: Map<string, MediaFile>
+    private watcher: PathWatcher
+    private rawData?: BaseSourceConfig
+    private rawDataWatcher? : PathWatcher
+    private converter: MediaConvert
 
     constructor(sourceConfig:SourceConfig) {
         super();
         this.path = normalize_path(sourceConfig.path)
-        this.recursive = sourceConfig.recursive || false;
+        this.name = sourceConfig.name || basename(this.path);
+        this.recursive = sourceConfig.recursive || false;        this.cloud = sourceConfig.cloud || false;
         this.rawData = sourceConfig.rawData
         this.files = new Map();
-        this.watcher = new PathWatcher(this.path, this.recursive);
+        this.watcher = WatcherFactory.create(this.path, this.recursive, this.cloud);
         this.converter = new MediaConvert();
 
         // ファイル変更イベントのハンドラを設定
         this.watcher.on("change", this.handleFileChange.bind(this));
 
         if (this.rawData) {
-            this.rawDataWatcher = new PathWatcher(this.rawData.path, this.rawData.recursive);
+            this.rawDataWatcher = WatcherFactory.create(this.rawData.path, this.rawData.recursive || false, this.rawData.cloud || false);
             this.rawDataWatcher.on("change", this.handleRawDataFileChange.bind(this))
         }
-
     }
 
     /**
@@ -85,6 +86,7 @@ export default class MediaSource extends EventEmitter {
         try {
             const targetPath = subDir ? join_path(parentDir, subDir) : parentDir;
             const entries = await readdir(targetPath, { withFileTypes: true });
+            const category = ( targetPath == this.path ) ? "ROOT" : relative_path(this.path, targetPath);
 
             for (const entry of entries) {
                 if (entry.isFile()) {
@@ -92,22 +94,27 @@ export default class MediaSource extends EventEmitter {
                     const ext = extname(entry.name).toLowerCase();
 
                     // 受け入れ可能な拡張子かチェック
-                    if (!acceptableExtensions.includes(ext as typeof acceptableExtensions[number])) {
+                    if (!isAcceptableExtension(ext)) {
                         continue;
                     }
 
                     const title = basename(entry.name, ext);
                     const stats = await stat(fullPath);
 
-                    const file = await MediaFile.create(
-                      fullPath,
-                      ext,
-                      title,
-                      subDir || "ROOT",
-                      stats.size,
-                      stats.mtime.getTime()
-                    );
-                    newFiles.set(fullPath, file);
+                    try {
+                        const file = await MediaFile.create(
+                            fullPath,
+                            ext,
+                            title,
+                            category,
+                            stats.size,
+                            stats.mtime.getTime()
+                        );
+                        newFiles.set(fullPath, file);
+                    } catch (error) {
+                        // ffprobeによるメタデータの取得に失敗した
+                        logger.error(`MediaSource: failed to create MediaFile: ${fullPath}`, error);
+                    }
                 } else if (entry.isDirectory() && this.recursive) {
                     // サブディレクトリを再帰的にスキャン
                     await this.scanSub(targetPath, entry.name, newFiles);
@@ -147,7 +154,7 @@ export default class MediaSource extends EventEmitter {
 
         try {
             // rawDataのファイルリストを作成
-            const rawList = await ComparableFileList.create(this.rawData.path, this.rawData.recursive);
+            const rawList = await ComparableFileList.create(this.rawData.path, this.rawData.recursive===true);
             const currentList = await ComparableFileList.create(this.path, this.recursive);
 
             // ファイルリストを比較
@@ -180,6 +187,8 @@ export default class MediaSource extends EventEmitter {
             const relativePath = relative_path(this.rawData.path, rawPath);
 
             const targetPath = join_path(this.path, relativePath);
+            const dir = dirname_path(targetPath)
+            const category = ( dir == this.path ) ? "ROOT" : relative_path(this.path, dir);
 
             // 既に存在する場合はスキップ
             try {
@@ -188,6 +197,18 @@ export default class MediaSource extends EventEmitter {
                 return;
             } catch {
                 // ファイルが存在しない場合は続行
+                await ensureDirectoryExists(dir);
+            }
+
+            if(ext === ".mp4"|| ext === ".mp3") {
+                // rawData内のファイルが動画・音声として扱えることを確認
+                try {
+                    MediaFile.getDuration(rawPath)
+                } catch (error) {
+                    // まだコピー中とかダウンロード中などの状態でメタデータが取得できない可能性がある
+                    this.rawDataWatcher?.feedbackCreationError(rawPath);
+                    return
+                }
             }
 
             // 監視を一時停止
@@ -205,8 +226,8 @@ export default class MediaSource extends EventEmitter {
                 const file = await MediaFile.create(
                     targetPath,
                     ext,
-                    basename(filename, ext),
-                    this.path,
+                    basename(filename),
+                    category,
                     stats.size,
                     stats.mtime.getTime()
                 );
@@ -231,8 +252,17 @@ export default class MediaSource extends EventEmitter {
     private async handleFileChange(event: FileChangeEvent): Promise<void> {
         const ext = extname(event.fullPath).toLowerCase();
         // 受け入れ可能な拡張子かチェック
-        if (!acceptableExtensions.includes(ext as typeof acceptableExtensions[number])) {
-            return;
+        if (!isAcceptableExtension(ext)) {
+            if (event.changeType === "Renamed" && isAcceptableExtension(extname((event as FileRenameEvent).oldFullPath))) {
+                // 受け入れ可能な名前から、受け入れない名前に変更されたら Delete として扱う
+                event = {
+                    changeType: "Deleted",
+                    name: basename((event as FileRenameEvent).oldFullPath),
+                    fullPath: (event as FileRenameEvent).oldFullPath
+                }
+            } else {
+                return
+            }
         }
 
         try {
@@ -240,13 +270,13 @@ export default class MediaSource extends EventEmitter {
             switch(event.changeType) {
                 case "Created":
                 case "Changed":
-                    const title = basename(event.fullPath, ext)
+                    const title = basename(event.fullPath)
                     const stats = await stat(event.fullPath)
                     const old = this.files.get(event.fullPath)
                     var changeType = "Created"
                     if (old) {
                         // 既存のファイルがある
-                        if (old.size === stats.size && old.date === stats.mtime.getTime()) {
+                        if (old.length === stats.size && old.date === stats.mtime.getTime()) {
                             // サイズと更新日時が同じなら何もしない
                             logger.debug(`MediaSource: unchanged file: ${event.fullPath}`);
                             return;
@@ -258,17 +288,22 @@ export default class MediaSource extends EventEmitter {
                     const category = ( dir == this.path ) ? "ROOT" : relative_path(this.path, dir);
                     logger.info(`MediaSource: created: ${event.fullPath}`)
 
-                    file = await MediaFile.create(
-                        event.fullPath,
-                        ext,
-                        title,
-                        category,
-                        stats.size,
-                        stats.mtime.getTime()
-                    )
-
-                    this.files.set(event.fullPath, file);
-                    this.emit("change", {...event, file, changeType})
+                    try {
+                        file = await MediaFile.create(
+                            event.fullPath,
+                            ext,
+                            title,
+                            category,
+                            stats.size,
+                            stats.mtime.getTime()
+                        )
+                        this.files.set(event.fullPath, file);
+                        this.emit("change", {...event, file, changeType})
+                    } catch (error) {
+                        // ffprobeによるメタデータの取得に失敗した
+                        logger.error(`MediaSource: failed to create MediaFile: ${event.fullPath}`, error);
+                        this.watcher.feedbackCreationError(event.fullPath);
+                    }
                     break;
 
                 case "Deleted":
@@ -286,6 +321,7 @@ export default class MediaSource extends EventEmitter {
                     if (file) {
                         // 新しいパスを設定
                         file.path = renameEvent.fullPath
+                        file.title = basename(event.fullPath)
                         // ファイルマップを更新
                         this.files.delete(renameEvent.oldFullPath)
                         this.files.set(renameEvent.fullPath, file)
@@ -324,8 +360,6 @@ export default class MediaSource extends EventEmitter {
                     break
                 case "Changed":
                     logger.info(`MediaSource(rawData): changed: ${event.fullPath}`)
-                    // todo
-                    // コピー（動画ならコンバート）
                     break
             }
         } catch(error) {

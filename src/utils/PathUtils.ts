@@ -1,4 +1,7 @@
+import { access, existsSync } from "fs"
+import { mkdir } from "fs/promises";
 import {dirname, join, normalize, relative} from "path";
+import { logger } from "../Logger"
 
 export function join_path(...args: string[]): string {
   return join(...args).replace(/\\/g, '/')
@@ -26,3 +29,14 @@ export function remove_trailing_slash(path: string): string {
   return dir.endsWith('/') && dir.length > 1 ? dir.slice(0, -1) : dir;
 }
 
+export async function ensureDirectoryExists(dir:string): Promise<void> {
+  try {
+    if(existsSync(dir)) {
+      return
+    }
+    await mkdir(dir, { recursive: true });
+  } catch (error) {
+      logger.error("ensureDirectoryExists: error", error)
+      throw error;
+    }
+  }

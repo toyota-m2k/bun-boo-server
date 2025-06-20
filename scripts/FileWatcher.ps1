@@ -1,3 +1,7 @@
+# 単体実行
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/FileWatcher.ps1 -Path "D:/videos" -EnableDebug
+# -Path は監視するディレクトリのパス。
+
 # パラメータの取得
 param(
     [Parameter(Mandatory=$true)]

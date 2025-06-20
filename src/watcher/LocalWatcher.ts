@@ -1,20 +1,10 @@
-import { EventEmitter } from "events";
+import { logger } from "../Logger"
 import { spawn } from "child_process";
 import { existsSync } from "fs";
-import { logger } from "../Logger";
 import {join} from "path";
+import { PathWatcher, type FileChangeEvent, type FileRenameEvent } from "./PathWatcher";
 
-export interface FileChangeEvent {
-    changeType: "Created" | "Changed" | "Deleted" | "Renamed";
-    name: string;
-    fullPath: string;
-}
-export interface FileRenameEvent extends FileChangeEvent {
-    oldName: string;
-    oldFullPath: string;
-}
-
-export default class PathWatcher extends EventEmitter {
+export default class LocalWatcher extends PathWatcher {
     private watcher: any = null
     private isWatching: boolean = false
     private currentPath: string = ""

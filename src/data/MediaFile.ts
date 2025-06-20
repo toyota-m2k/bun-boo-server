@@ -66,14 +66,26 @@ export default class MediaFile implements IMediaFile {
         if (this._duration !== null) {
             return this;
         }
+        this._duration = await MediaFile.getDuration(this.path)
+        return this
+    }
 
+    public static async create(path:string, ext:string, title:string, category:string, length:number,date:number):Promise<MediaFile> {
+        const e = new MediaFile( path, ext, title, category, length, date)
+        if( ext === ".mp4" || ext === ".mp3" ) {
+            await e.getDuration()
+        }
+        return e;
+    }
+
+    public static async getDuration(path:string): Promise<number> {
         return new Promise((resolve, reject) => {
             const ffprobePath = config.ffprobe.path.replace(/\\/g, "/");
             const ffprobe = spawn(ffprobePath, [
                 "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "json",
-                this.path
+                path
             ]);
 
             let output = "";
@@ -96,9 +108,9 @@ export default class MediaFile implements IMediaFile {
 
                 try {
                     const result = JSON.parse(output);
-                    this._duration = parseFloat(result.format.duration);
+                    const duration = parseFloat(result.format.duration);
                     logger.debug("ffprobe ok.")
-                    resolve(this);
+                    resolve(duration)
                 } catch (error) {
                     const msg = `Failed to parse ffprobe output: ${error}`
                     reject(new Error(msg));
@@ -107,11 +119,4 @@ export default class MediaFile implements IMediaFile {
         });
     }
 
-    public static async create(path:string, ext:string, title:string, category:string, length:number,date:number):Promise<MediaFile> {
-        const e = new MediaFile( path, ext, title, category, length, date)
-        if( ext === ".mp4" || ext === ".mp3" ) {
-            await e.getDuration()
-        }
-        return e;
-    }
 }
