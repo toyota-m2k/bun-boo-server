@@ -3,12 +3,14 @@ import { spawn } from "child_process";
 import { existsSync } from "fs";
 import {join} from "path";
 import { PathWatcher, type FileChangeEvent, type FileRenameEvent } from "./PathWatcher";
+import { t } from "elysia"
 
 export default class LocalWatcher extends PathWatcher {
     private watcher: any = null
-    private isWatching: boolean = false
     private currentPath: string = ""
     private recursive: boolean = false
+    private isWatching: boolean = false
+    private killResolver: ((value: void | PromiseLike<void>) => void) | undefined = undefined
 
     constructor(path:string, recursive: boolean) {
         super()
@@ -17,10 +19,10 @@ export default class LocalWatcher extends PathWatcher {
     }
 
     public async start(): Promise<void> {
-        if (this.isWatching) {
+        if (this.watcher != null) {
             await this.stop();
         }
-
+        logger.info(`PathWatch: start: ${this.currentPath} (recursive: ${this.recursive})`);
 
         if (!existsSync(this.currentPath)) {
             throw new Error(`Directory does not exist: ${this.currentPath}`);
@@ -31,17 +33,17 @@ export default class LocalWatcher extends PathWatcher {
     }
 
     public async stop(): Promise<boolean> {
-        if (!this.isWatching) {
+        if (!this.watcher) {
             return false;
         }
 
-        logger.info(`PathWatch: stop: ${this.currentPath}`);
-        if (this.watcher) {
-            this.watcher.kill();
-            this.watcher = null;
-        }
+        logger.info(`PathWatch: stopping...: ${this.currentPath}`);
         this.isWatching = false;
-        this.currentPath = "";
+        await new Promise<void>((resolve) => {
+            this.killResolver = resolve;
+            this.watcher.kill();
+        })
+        logger.info(`PathWatch: stopped: ${this.currentPath}`);
         return true
     }
 
@@ -102,10 +104,20 @@ export default class LocalWatcher extends PathWatcher {
 
             this.watcher.on("close", (code: number) => {
                 logger.info(`Watcher process exited with code ${code}`);
-                this.isWatching = false;
-                this.emit("error", new Error(`Watcher process exited with code ${code}`));
+                this.watcher = null;
+                if (this.isWatching) {
+                    logger.error(`Watcher stopped unexpectedly with code ${code}. Restarting...`)
+                    this.startWatch().catch(err => {
+                        logger.error("Watcher restart failed:", err);
+                    });
+                } else {
+                    logger.info("Watcher stopped gracefully.");
+                    if (this.killResolver) {
+                        this.killResolver();
+                        this.killResolver = undefined;
+                    }
+                }
             });
-
             this.isWatching = true;
         } catch (error) {
             logger.error("監視開始エラー:", error);

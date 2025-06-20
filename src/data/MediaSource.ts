@@ -180,7 +180,6 @@ export default class MediaSource extends EventEmitter {
     private async processRawFile(rawPath: string): Promise<void> {
         if (!this.rawData) return;
 
-
         try {
             const ext = extname(rawPath).toLowerCase();
             const filename = basename(rawPath);
@@ -203,7 +202,7 @@ export default class MediaSource extends EventEmitter {
             if(ext === ".mp4"|| ext === ".mp3") {
                 // rawData内のファイルが動画・音声として扱えることを確認
                 try {
-                    MediaFile.getDuration(rawPath)
+                    await MediaFile.getDuration(rawPath)
                 } catch (error) {
                     // まだコピー中とかダウンロード中などの状態でメタデータが取得できない可能性がある
                     this.rawDataWatcher?.feedbackCreationError(rawPath);
@@ -235,6 +234,8 @@ export default class MediaSource extends EventEmitter {
                 this.files.set(targetPath, file);
                 this.emit("change", {changeType: "Created", file});
                 logger.info(`MediaSource file appended from rawData: ${targetPath}`)
+            } catch (error) {
+                logger.error(`MediaSource: failed to process rawData file: ${rawPath}`, error)
             } finally {
                 if( stopped) {
                     // 監視を再開
@@ -346,26 +347,23 @@ export default class MediaSource extends EventEmitter {
             let file:MediaFile|undefined
             switch(event.changeType) {
                 case "Created":
-                    logger.info(`MediaSource(rawData): created: ${event.fullPath}`)
+                case "Changed":
+                    logger.info(`MediaSource(rawData): ${event.changeType}: ${event.fullPath}`)
                     this.processRawFile(event.fullPath)
                     break
 
                 case "Deleted":
-                    logger.info(`MediaSource(rawData): deleted: ${event.fullPath}`)
+                    logger.info(`MediaSource(rawData): deleted (no effect): ${event.fullPath}`)
                     // nothing to do.
                     break;
                 case "Renamed":
                     const renameEvent = event as FileRenameEvent
-                    logger.info(`MediaSource(rawData): renamed: ${renameEvent.oldFullPath} -> ${renameEvent.name}`)
-                    break
-                case "Changed":
-                    logger.info(`MediaSource(rawData): changed: ${event.fullPath}`)
+                    logger.info(`MediaSource(rawData): renamed (no effect): ${renameEvent.oldFullPath} -> ${renameEvent.name}`)
                     break
             }
         } catch(error) {
             logger.error("MediaSource#handleRawDataFileChange error", error);
         }
-
     }
 
     /**
