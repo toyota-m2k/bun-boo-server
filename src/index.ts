@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { cors } from '@elysiajs/cors'
 import { readFileSync } from "fs";
 import { join } from "path";
 import config from "../private/config.ts";
@@ -11,6 +12,7 @@ async function main() {
     try {
         // Elysiaアプリケーションの設定
         const app = new Elysia()
+            .use(cors())
             .onError(({ code, error, set, request }) => {
                 // エラーメッセージをコンソールに出力
                 logger.error(`${code} - ${request.url}`, error);

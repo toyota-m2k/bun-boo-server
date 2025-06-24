@@ -72,19 +72,24 @@ export default class MediaConvert {
             // ビデオストリームを探す
             const videoStream = info.streams.find(s => s.codec_type === "video");
             if (!videoStream) {
-                throw new Error("ビデオストリームが見つかりません");
-            }
-
-            // HEVCでない場合はコンバートしない
-            if (videoStream.codec_name.toLowerCase() !== "hevc") {
-                logger.info(`${inputPath} はHEVCではないため、コンバートをスキップします`);
+                logger.info(`${inputPath} にはビデオストリームがありません。`);
                 return false;
             }
 
-            logger.info(`${inputPath}： コンバートを開始します`);
-            // コンバート実行
-            return new Promise((resolve, reject) => {
-                const ffmpeg = spawn(this.ffmpegPath, [
+            // HEVCでない場合はコンバートしない
+            let args: string[]
+            if (videoStream.codec_name.toLowerCase() !== "hevc") {
+                logger.info(`${inputPath} はHEVCではないため、faststartのみ適用します。`);
+                args = [
+                    "-i", inputPath,
+                    "-c:v", "copy",
+                    "-c:a", "copy",
+                    "-movflags", "faststart",
+                    outputPath
+                ];
+            } else {
+                logger.info(`${inputPath} はHEVCです。コンバートを実行します。`);
+                args = [
                     "-i", inputPath,
                     "-c:v", "libx265",
                     "-x265-params", "chroma-format=420",
@@ -92,7 +97,13 @@ export default class MediaConvert {
                     "-c:a", "copy",
                     "-movflags", "faststart",
                     outputPath
-                ]);
+                ];
+            }
+
+            logger.info(`${inputPath}： コンバートを開始します`);
+            // コンバート実行
+            return new Promise((resolve, reject) => {
+                const ffmpeg = spawn(this.ffmpegPath, args);
 
                 let error = "";
 

@@ -62,7 +62,7 @@ function getItem(
         query: Record<string,string>,
         headers: Record<string,string|undefined>,
     }
-): BunFile | { error: string; status:number, details?: string } {
+): BunFile | Response | { error: string; status:number, details?: string } {
 
     const { set, query, headers } = context
     const { id } = query
@@ -71,20 +71,29 @@ function getItem(
         return handleError(set, `Not Found (id=${id})`, undefined, 404)
     }
 
+    logger.debug(`GET ITEM: ${item.path} (id=${id})`)
     try {
         const file = Bun.file(item.path)
-        set.headers["Content-Type"] = mimeType(item)
+        const fileSize = file.size
         if(mediaType(item)==="p") {
             return file
         }
 
-        const fileSize = file.size
-        set.headers["Accept-Ranges"] = "bytes"
+        // set.header("Accept-Ranges", "bytes")
+        // set.headers["Connection"] = "keep-alive"
 
         const rangeHeader = headers["range"]
         if (!rangeHeader) {
-            set.headers["Content-Length"] = fileSize.toString()
-            return file
+            // set.headers["Content-Length"] = fileSize.toString()
+            // return file
+            return new Response(file, {
+                headers: {
+                    "Content-Type": mimeType(item),
+                    "Accept-Ranges": "bytes",
+                    "Connection": "keep-alive",
+                    "Content-Length": fileSize.toString()
+                }
+            })
         }
 
         const range = rangeHeader.replace("bytes=", "").split("-")
@@ -96,11 +105,22 @@ function getItem(
         }
 
         const chunkSize = end - start + 1
-        set.headers["Content-Range"] = `bytes ${start}-${end}/${fileSize}`
-        set.headers["Content-Length"] = chunkSize.toString()
-        set.status = 206
+        const rangeValue = `bytes ${start}-${end}/${fileSize}`
+        // set.headers["Content-Range"] = rangeValue
+        // set.headers["Content-Length"] = chunkSize.toString()
+        // set.status = 206
 
-        return file.slice(start, end + 1)
+        // return file.slice(start, end + 1)
+        return new Response(file.slice(start, end + 1), {
+        status: 206,
+        headers: {
+            "Content-Type": mimeType(item),
+            "Accept-Ranges": "bytes",
+            "Connection": "keep-alive",
+            "Content-Range": rangeValue,
+            "Content-Length": chunkSize.toString()
+        }
+    })
     } catch (error) {
         return handleError(set, "Failed to read video file", error)
     }
@@ -196,19 +216,19 @@ export function booSetup(app:Elysia):Elysia {
     
     })
     .get("/item", (context) => {
-        logger.info("ITEM")
+        // logger.info("ITEM")
         return getItem(context)
     })
     .get("/photo", (content) => {
-        logger.info("PHOTO")
+        // logger.info("PHOTO")
         return getItem(content)
     })
     .get("/video", (content) => {
-        logger.info("VIDEO")
+        // logger.info("VIDEO")
         return getItem(content)
     })
     .get("/audio", (content) => {
-        logger.info("AUDIO")
+        // logger.info("AUDIO")
         return getItem(content)
     })
     .get("/chapter", ({query})=>{
@@ -234,11 +254,19 @@ export function booSetup(app:Elysia):Elysia {
     })
     .get("/categories", ()=> {
         logger.info("CATEGORIES")
+        // const categories = new Set(manager.allFiles().map(it=>it.category))
         return {
             cmd: "categories",
             unchecked: "Unchecked",
             categories: [...new Set(manager.allFiles().map(it=>it.category))]
         }
+    })
+    .get("/pw/auth/*", ({set})=>{
+        set.status = 404
+        return "NOT_FOUND"
+    })
+    .get("favicon.ico", () => {
+        return Bun.file("private/favicon.ico")
     })
 }
 

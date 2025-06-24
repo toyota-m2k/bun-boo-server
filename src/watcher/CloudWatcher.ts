@@ -58,7 +58,7 @@ export default class CloudWatcher extends PathWatcher {
 
     this.isScanning = true
     try {
-      logger.info(`CloudWatch: スキャン開始: ${this.currentPath}`)
+      logger.verbose(`CloudWatch: スキャン開始: ${this.currentPath}`)
       // 現在のファイルリストを作成
       const currentList = await ComparableFileList.create(this.currentPath, this.recursive)
       const previousList = this.fileList
@@ -97,7 +97,7 @@ export default class CloudWatcher extends PathWatcher {
       console.error(`スキャンに失敗: ${this.currentPath}`, error)
     } finally {
       this.isScanning = false
-      logger.info(`CloudWatch: スキャン完了: ${this.currentPath}`)
+      logger.verbose(`CloudWatch: スキャン完了: ${this.currentPath}`)
     }
   }
 
