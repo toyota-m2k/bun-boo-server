@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
 import { type IMediaFile } from "./MediaFile"
+import target from "../../private/target"
 
 export interface MetaData extends IMediaFile {
     id?: number;
@@ -19,12 +20,26 @@ export interface MetaData extends IMediaFile {
     option: string;
 }
 
+interface IDbSettings {
+    db?: {
+        dir?: string | undefined,
+        name?: string | undefined
+    }|undefined
+}
+
+function getDbPath(): string {
+    const dbSettings = (target as IDbSettings).db
+    const dbDir = dbSettings?.dir || process.cwd()
+    const dbName = dbSettings?.name || "metadata.db";
+    return join(dbDir, dbName); 
+}
+ 
 export default class MetaDataDB {
     private db: Database;
 
-    constructor(dbPath: string = "metadata.db") {
+    constructor(dbPath: string = getDbPath()) {
         // DBファイルのパスを設定
-        const fullPath = join(process.cwd(), dbPath);
+        const fullPath = join(dbPath);
         this.db = new Database(fullPath);
 
         // パフォーマンス最適化のための設定
@@ -199,6 +214,42 @@ export default class MetaDataDB {
         `);
 
         return stmt.all({ $label: `%${label}%` }) as MetaData[];
+    }
+
+    /**
+     * 特定の日時以降に追加されたメタデータを取得
+     * @param previous 基準となる日時（Dateオブジェクト）
+     * @returns 基準日時以降に作成されたメタデータの配列
+     */
+    public getCreatedSince(previous: Date): MetaData[] {
+        // Dateオブジェクトを文字列に変換
+        // const timestamp = previous.toISOString();
+        const timestamp = previous.toISOString().replace('T', ' ').replace('Z', '');        
+        const stmt = this.db.prepare(`
+            SELECT * FROM metadata 
+            WHERE created_at > $timestamp
+            ORDER BY created_at
+        `);
+
+        return stmt.all({ $timestamp: timestamp }) as MetaData[];
+    }
+
+    /**
+     * 特定の日時以降に追加または更新されたメタデータを取得
+     * @param previous 基準となる日時（Dateオブジェクト）
+     * @returns 基準日時以降に作成または更新されたメタデータの配列
+     */
+    public getUpdatedSince(previous: Date): MetaData[] {
+        // Dateオブジェクトを文字列に変換
+        // const timestamp = previous.toISOString();
+        const timestamp = previous.toISOString().replace('T', ' ').replace('Z', '');
+        const stmt = this.db.prepare(`
+            SELECT * FROM metadata 
+            WHERE created_at > $timestamp OR updated_at > $timestamp
+            ORDER BY updated_at DESC
+        `);
+
+        return stmt.all({ $timestamp: timestamp }) as MetaData[];
     }
 
     /**

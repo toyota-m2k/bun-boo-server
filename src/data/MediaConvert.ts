@@ -82,6 +82,7 @@ export default class MediaConvert {
                 logger.info(`${inputPath} はHEVCではないため、faststartのみ適用します。`);
                 args = [
                     "-i", inputPath,
+                    "-map_metadata", "0",
                     "-c:v", "copy",
                     "-c:a", "copy",
                     "-movflags", "faststart",
@@ -91,6 +92,7 @@ export default class MediaConvert {
                 logger.info(`${inputPath} はHEVCです。コンバートを実行します。`);
                 args = [
                     "-i", inputPath,
+                    "-map_metadata", "0",
                     "-c:v", "libx265",
                     "-x265-params", "chroma-format=420",
                     "-tag:v", "hvc1",

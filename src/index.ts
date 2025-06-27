@@ -14,9 +14,6 @@ async function main() {
         const app = new Elysia()
             .use(cors())
             .onError(({ code, error, set, request }) => {
-                // エラーメッセージをコンソールに出力
-                logger.error(`${code} - ${request.url}`, error);
-
                 // エラーコードに応じてステータスコードとメッセージを設定
                 const errorResponses = {
                     NOT_FOUND: {
@@ -49,6 +46,13 @@ async function main() {
 
                 // ステータスコードを設定
                 set.status = response.status;
+
+                if (set.status !== 404) {
+                    // Not Found 以外のエラーはログに記録
+                    logger.error(`${code} - ${request.url}`);
+                } else {
+                    logger.debug(`${code} - ${request.url}`);
+                }
 
                 // エラーレスポンスを返す
                 return {

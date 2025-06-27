@@ -92,8 +92,9 @@ export default class MediaFileManager extends EventEmitter {
                 break;
             default:
                 logger.error(`unsupported event: ${event.changeType}`)
-                break;
+                return;
         }
+        this.lastUpdated = new Date()
     }
 
     /**
@@ -117,7 +118,6 @@ export default class MediaFileManager extends EventEmitter {
             flag: 0,
             option: ""
         });
-        this.lastUpdated = new Date()
     }
 
     /**
@@ -139,6 +139,13 @@ export default class MediaFileManager extends EventEmitter {
         } catch (error) {
             logger.error(`ファイルのリネーム処理に失敗: ${file.path}`, error);
         }
+    }
+
+    public listCreatedSince(date: Date): MetaData[] {
+        return this.db.getCreatedSince(date);
+    }
+    public listUpdatedSince(date: Date): MetaData[] {
+        return this.db.getUpdatedSince(date);
     }
 
     /**

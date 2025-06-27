@@ -154,13 +154,33 @@ export function booSetup(app:Elysia):Elysia {
     })
     .get("/check", ({ query }) => {
         const { date } = query
-        const dn = parseInt(date??"0")
-        const update = (manager.lastUpdated.getTime()>dn) ? "1" : "0"
-        logger.debug(`CHECK ${dn} : ${update}`)
+        const checkPoint = parseInt(date??"0")
+        const checkDate = new Date(checkPoint)
+        const updated = manager.lastUpdated.getTime()>checkPoint
+        let list: MetaData[] = []
+        if (date && updated) {
+            list = manager.listUpdatedSince(checkDate)
+        }
+        logger.debug(`CHECK ${checkDate} : updated=${updated} (listCount=${list.length})`)
+
         return {
             cmd: "check",
-            update,
-            status: "ok"
+            update: updated ? "1" : "0",
+            date: manager.lastUpdated.getTime(),
+            status: "ok",
+            list: list.map((v) => {
+                                return {
+                                    id: `${v.id}`,
+                                    name: v.title,
+                                    start: 0,
+                                    end: 0,
+                                    volume: 0.5,
+                                    type: booType(v),
+                                    media: mediaType(v),
+                                    size: v.length,
+                                    duration: v.duration?.toFixed() ?? 0,
+                                }
+                            })
         }
     })
     .get("/list", ({set, query}) => {
@@ -261,8 +281,8 @@ export function booSetup(app:Elysia):Elysia {
             categories: [...new Set(manager.allFiles().map(it=>it.category))]
         }
     })
-    .get("/pw/auth/*", ({set})=>{
-        set.status = 404
+    .get("/pw/*", ({set})=>{
+        set.status = 200
         return "NOT_FOUND"
     })
     .get("favicon.ico", () => {
